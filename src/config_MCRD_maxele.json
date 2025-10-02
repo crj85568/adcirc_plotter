@@ -1,0 +1,17 @@
+{
+  "input": "./maxele.63.nc",
+  "variable": "zeta_max",
+  "transparency": 1.0,   
+  "draw_mesh": false,
+  "output": "MCRD_storm_0473_maxele.png",
+  "bbox": [-80.75, 32.25, -80.60, 32.40],
+  "cmap": "turbo",
+  "clabel": "Peak Water Level (m, NAVD88)",
+  "vmin": 0,
+  "vmax": 6,
+  "tick_interval": 1.0,
+  "no_basemap": false,
+  "show_state_labels": false,
+  "show_state_boundaries": false,
+  "multiplier": 1.0
+}
