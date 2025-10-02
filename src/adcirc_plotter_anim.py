@@ -18,6 +18,7 @@ import math
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import argparse
 
 def smart_format(x, _):
     abs_x = abs(x)
@@ -468,7 +469,7 @@ def animate_adcirc_zeta(ncfile, variable='zeta',
     if var is None or var.ndim != 2:
         ds.close()
         raise ValueError(f"Expected '{variable}(time,node)' in the file.")
-
+    zeta = var
     ntime = zeta.shape[0]
     if end_index is None or end_index >= ntime:
         end_index = ntime - 1
@@ -616,54 +617,54 @@ if __name__ == "__main__":
     parser.add_argument("--transparency", type=float, default=1.0, help="Transparency level for the colormap (0.0 to 1.0)")
 
     
-args = parser.parse_args()
-
-# Load config if provided, then let CLI override
-config = {}
-if args.config:
-    with open(args.config, "r") as f:
-        config = json.load(f)
-
-# Helper to pick output format
-if args.format:
-    if args.output:
-        root, _ext = os.path.splitext(args.output)
-        args.output = root + (".mp4" if args.format.lower() == "mp4" else ".gif")
-
-if args.animate:
-    if not args.input:
-        raise SystemExit("Please provide --input pointing to a time-varying ADCIRC NetCDF (e.g., fort.63.nc).")
-    out = args.output or "animation.mp4"
-    animate_adcirc_zeta(
-        ncfile=args.input,
-        output_file=out,
-        fps=args.fps,
-        start_index=args.start_index,
-        end_index=args.end_index,
-        step=args.step,
-        bounds=config.get("bbox"),
-        vmin=args.vmin if args.vmin is not None else config.get("vmin"),
-        vmax=args.vmax if args.vmax is not None else config.get("vmax"),
-        cmap=args.cmap if hasattr(args, "cmap") and args.cmap else config.get("cmap", "RdYlBu_r"),
-        add_basemap=not args.no_basemap if hasattr(args, "no_basemap") else config.get("basemap", False),
-        shapefile_overlay=config.get("shapefile_overlay"),
-        shapefile_overlay_label=config.get("shapefile_overlay_label"),
-        clabel=(config.get("clabel") if config.get("clabel") is not None else f"{(args.variable or config.get('variable','zeta'))} (units)") ,
-        show_state_labels=config.get("show_state_labels", False),
-        show_state_boundaries=config.get("show_state_boundaries", False),
-        multiplier=config.get("multiplier", 1.0),
-        draw_mesh=config.get("draw_mesh", False),
-        transparency=config.get("transparency", 1.0)
-    )
-    raise SystemExit(0)
-
-
+    args = parser.parse_args()
+    
+    # Load config if provided, then let CLI override
+    config = {}
     if args.config:
-        print(f"Loading configuration from {args.config}...")
-        with open(args.config, 'r') as f:
+        with open(args.config, "r") as f:
             config = json.load(f)
-    else:
-        config = vars(args)
+    
+    # Helper to pick output format
+    if args.format:
+        if args.output:
+            root, _ext = os.path.splitext(args.output)
+            args.output = root + (".mp4" if args.format.lower() == "mp4" else ".gif")
+    
+    if args.animate:
+        if not args.input:
+            raise SystemExit("Please provide --input pointing to a time-varying ADCIRC NetCDF (e.g., fort.63.nc).")
+        out = args.output or "animation.mp4"
+        animate_adcirc_zeta(
+            ncfile=args.input,
+            output_file=out,
+            fps=args.fps,
+            start_index=args.start_index,
+            end_index=args.end_index,
+            step=args.step,
+            bounds=config.get("bbox"),
+            vmin=args.vmin if args.vmin is not None else config.get("vmin"),
+            vmax=args.vmax if args.vmax is not None else config.get("vmax"),
+            cmap=args.cmap if hasattr(args, "cmap") and args.cmap else config.get("cmap", "RdYlBu_r"),
+            add_basemap=not args.no_basemap if hasattr(args, "no_basemap") else config.get("basemap", False),
+            shapefile_overlay=config.get("shapefile_overlay"),
+            shapefile_overlay_label=config.get("shapefile_overlay_label"),
+            clabel=(config.get("clabel") if config.get("clabel") is not None else f"{(args.variable or config.get('variable','zeta'))} (units)") ,
+            show_state_labels=config.get("show_state_labels", False),
+            show_state_boundaries=config.get("show_state_boundaries", False),
+            multiplier=config.get("multiplier", 1.0),
+            draw_mesh=config.get("draw_mesh", False),
+            transparency=config.get("transparency", 1.0)
+        )
+        raise SystemExit(0)
+    
+    
+        if args.config:
+            print(f"Loading configuration from {args.config}...")
+            with open(args.config, 'r') as f:
+                config = json.load(f)
+        else:
+            config = vars(args)
 
     print("Starting ADCIRC plotter...")
     input_file = args.input or config.get("input", "fort.14")
