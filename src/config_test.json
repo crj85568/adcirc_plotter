@@ -1,0 +1,1 @@
+{"input": "./maxele.63.nc", "variable": "zeta_max", "transparency": 1, "draw_mesh": false, "output": "config_test_anim.png", "bbox": [-81.8, 30.6, -81.3, 31.0], "cmap": "turbo", "clabel": "Water Level (m, NAVD88)", "vmin": 0, "vmax": 6, "tick_interval": 1, "no_basemap": false, "show_state_labels": false, "show_state_boundaries": false, "multiplier": 1}

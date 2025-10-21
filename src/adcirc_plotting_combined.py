@@ -78,54 +78,6 @@ def set_equal_visual_ticks(cbar, norm, n=8, formatter=None, orientation='vertica
     print(f"Colorbar (equal visual) labels: {labels}")
 
 
-def normalize_bounds(bounds):
-    """
-    Ensure bounds are [xmin, ymin, xmax, ymax] where x=longitude (-180..180), y=latitude (-90..90).
-    Fix reversed min/max; swap if given as (lat, lon, lat, lon); clamp to valid ranges.
-    Returns (fixed_bounds, changed: bool, swapped: bool).
-    """
-    if bounds is None:
-        return bounds, False, False
-    if len(bounds) != 4:
-        print("Warning: bounds must have 4 elements; ignoring provided bounds.")
-        return None, False, False
-    try:
-        x1, y1, x2, y2 = map(float, bounds)
-    except Exception:
-        print("Warning: bounds not numeric; ignoring provided bounds.")
-        return None, False, False
-    
-    # Detect (lat,lon,lat,lon): x look like lat; y look like lon (at least one |lon| > 90)
-    x_like_lat = (abs(x1) <= 90) and (abs(x2) <= 90)
-    y_like_lon = (abs(y1) <= 180) and (abs(y2) <= 180) and ((abs(y1) > 90) or (abs(y2) > 90))
-    swapped = False
-    if x_like_lat and y_like_lon:
-        x1, y1, x2, y2 = y1, x1, y2, x2
-        swapped = True
-        print("Notice: bounds appeared as (lat, lon, lat, lon); corrected to (lon, lat, lon, lat).")
-    
-    changed = swapped
-    
-    # Fix reversed min/max
-    xmin, xmax = (x1, x2) if x1 <= x2 else (x2, x1)
-    ymin, ymax = (y1, y2) if y1 <= y2 else (y2, y1)
-    if (xmin != x1) or (xmax != x2) or (ymin != y1) or (ymax != y2):
-        changed = True
-        print("Notice: bounds min/max were reversed; corrected to [xmin, ymin, xmax, ymax].")
-    
-    # Clamp to valid geographic ranges
-    xmin = max(-180.0, min(180.0, xmin))
-    xmax = max(-180.0, min(180.0, xmax))
-    ymin = max(-90.0,  min(90.0,  ymin))
-    ymax = max(-90.0,  min(90.0,  ymax))
-    
-    if xmin == xmax or ymin == ymax:
-        print("Warning: bounds collapsed to zero area; ignoring provided bounds.")
-        return None, changed, swapped
-    
-    return [xmin, ymin, xmax, ymax], changed, swapped
-
-
 def meters2deg(distance_meters):
     radius_earth = 6371000 # m
     return (distance_meters * 360.0) / (2 * np.pi * radius_earth)
@@ -181,64 +133,6 @@ def read_adcirc_netcdf(ncfile, variable="zeta_max"):
             raise ValueError(f"Variable '{variable}' not found in NetCDF file.")
     print(f"Read {nodes.shape[0]} nodes, {elements.shape[0]} elements, variable '{variable}'")
     return nodes, elements, values
-
-
-def meters2deg(distance_meters):
-    radius_earth = 6371000 # m
-    return (distance_meters * 360.0) / (2 * np.pi * radius_earth)
-
-def deg2meters(distance_deg):
-    radius_earth = 6371000 # m
-    return (2 * np.pi * radius_earth * distance_deg) / 360.0
-
-def read14(filename="fort.14"):
-    print(f"Reading ADCIRC grid from {filename}...")
-    nodes = []
-    elements = []
-    bathymetry = []
-    with open(filename, "r") as file:
-        header = file.readline().strip()
-        counts = file.readline().strip().split()
-        n_elements, n_nodes = int(counts[0]), int(counts[1])
-        print(f"Found {n_nodes} nodes and {n_elements} elements.")
-        for _ in range(n_nodes):
-            parts = file.readline().strip().split()
-            nodes.append([float(parts[1]), float(parts[2])])
-            bathymetry.append(float(parts[3]))
-        for _ in range(n_elements):
-            parts = file.readline().strip().split()
-            elements.append([int(parts[2])-1, int(parts[3])-1, int(parts[4])-1])
-    print("Finished reading fort.14 file.")
-    return np.array(nodes), np.array(elements), np.array(bathymetry)
-
-def read_adcirc_netcdf(ncfile, variable="zeta_max"):
-    print(f"Reading ADCIRC NetCDF file: {ncfile} ...")
-    try:
-        import netCDF4
-    except ImportError:
-        raise ImportError("netCDF4 python package is required to read ADCIRC NetCDF output.")
-    with netCDF4.Dataset(ncfile, "r") as ds:
-        x = ds.variables["x"][:]
-        y = ds.variables["y"][:]
-        nodes = np.vstack([x, y]).T
-        # element is (nfaces, nvertex) 1-based, need 0-based for python
-        elements = ds.variables["element"][:].astype(int) - 1
-        if elements.shape[1] > 3:
-            elements = elements[:, :3]
-        # remove elements with invalid node indices
-        elements = elements[(elements >= 0).all(axis=1)]
-        # get the variable to plot
-        if variable in ds.variables:
-            values = ds.variables[variable][:]
-            # If there's a fill value, mask it
-            if hasattr(ds.variables[variable], "_FillValue"):
-                fv = ds.variables[variable]._FillValue
-                values = np.where(values == fv, np.nan, values)
-        else:
-            raise ValueError(f"Variable '{variable}' not found in NetCDF file.")
-    print(f"Read {nodes.shape[0]} nodes, {elements.shape[0]} elements, variable '{variable}'")
-    return nodes, elements, values
-
 
 
 def plot_adcirc_mesh(
@@ -534,14 +428,7 @@ def normalize_bounds(bounds):
     changed = swapped or (xmin != x0) or (ymin != y0)
     return (xmin, ymin, xmax, ymax), changed, swapped
 
-def smart_format(x, _pos=None):
-    if x == 0:
-        return "0"
-    ax = abs(x)
-    if 1e-3 <= ax < 1e4:
-        s = f"{x:.6f}".rstrip("0").rstrip(".")
-        return s or "0"
-    return f"{x:.3g}"
+
 
 
 def animate_adcirc_zeta(ncfile, variable='zeta',
