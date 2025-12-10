@@ -1,0 +1,14 @@
+{
+    "input": "/Users/crj85568/Downloads/NGOM_RT_v19b_chk.grd",
+    "output": "full_mesh.png",
+    "bbox": [
+        -120,
+        0,
+        -60,
+        55
+    ],
+    "no_colorbar": true,
+    "transparency": 0.0,
+    "draw_mesh": true,
+    "no_basemap": false
+}

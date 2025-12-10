@@ -1,0 +1,33 @@
+{
+    "input": "/Users/crj85568/Downloads/NGOM_RT_v19b_chk.grd",
+    "output": "gulf_continuous.png",
+    "bbox": [
+        -90.25,
+        28.5,
+        -83.5,
+        31.25
+    ],
+    "cmap": "jet",
+    "transparency": 1.0,
+    "levels": [
+        -60,
+        -30,
+        -20,
+        -10,
+        -5,
+        -2,
+        -1,
+        0,
+        1,
+        2,
+        5,
+        10,
+        15,
+        20
+    ],
+    "show_state_labels": true,
+    "show_state_boundaries": true,
+    "draw_mesh": false,
+    "no_basemap": false,
+    "binned_colorbar": false
+}
