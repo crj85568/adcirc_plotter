@@ -19,15 +19,16 @@ from shapely.geometry import box, Point
 import cartopy.io.shapereader as shpreader
 from typing import Optional, Tuple
 
+# def smart_format(x, _):
+#     abs_x = abs(x)
+#     if abs_x < 1:
+#         return f"{x:,.2f}"
+#     elif abs_x < 10:
+#         return f"{x:,.1f}"
+#     else:
+#         return f"{x:,.0f}"
 def smart_format(x, _):
-    abs_x = abs(x)
-    if abs_x < 1:
-        return f"{x:,.2f}"
-    elif abs_x < 10:
-        return f"{x:,.1f}"
-    else:
-        return f"{x:,.0f}"
-
+    return f"{x:g}"
 
 def generate_balanced_ticks(vmin, vmax, n_ticks=8):
     if vmin >= vmax:
@@ -155,18 +156,26 @@ def plot_adcirc_mesh(
     draw_mesh: bool = False,
     tick_interval: Optional[float] = None,
     transparency: float = 1.0,
+    no_colorbar=False,
+    linewidth: float=0.12,
+    levels: Optional[list] = None,
+    binned_colorbar: bool=False
 ):
     fig, ax = init_figure()
     vals = preprocess_values(values, multiplier)
     bnds = validate_bounds(bounds)
     triang = setup_triangulation(nodes, elements)
     vmin, vmax, cmap = prepare_color(vals, vmin, vmax, cmap)
-    tpc, norm = draw_tripcolor(ax, triang, vals, vmin, vmax, cmap, transparency)
+    # UPDATE THIS CALL:
+    tpc, norm = draw_tripcolor(ax, triang, vals, vmin, vmax, cmap, transparency, levels=levels)
+    
     if draw_mesh:
-        add_mesh_lines(ax, triang)
-    if tpc:
-        set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, transparency,
-                     tick_interval)
+        add_mesh_lines(ax, triang, linewidth)
+        
+    if tpc and not no_colorbar:
+        # UPDATE THIS CALL:
+        set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, transparency, 
+                     tick_interval, levels=levels, binned=binned_colorbar)
     render_overlays(ax, nodes, bnds, add_basemap, show_state_labels,
                     show_state_boundaries, shapefile_overlay, shapefile_overlay_label)
     finalize(fig, ax, title, output_file)
@@ -225,9 +234,40 @@ def resolve_cmap(cmap):
     return cm.reversed() if flip else cm
 
 
-def draw_tripcolor(ax, triang, values, vmin, vmax, cmap, alpha):
+def draw_tripcolor(ax, triang, values, vmin, vmax, cmap, alpha, levels=None):
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
     if values is None:
         return None, None
+    # 1. PIECEWISE LINEAR MAPPING (The "Smooth Binned" Look)
+    if levels is not None:
+        # Sort levels just in case
+        levels = sorted(levels)
+        n_levels = len(levels)
+        
+        # Create a copy of values to transform
+        # We map the real values to their "Index" in the levels list.
+        # e.g., if levels are [-60, -30, ...], a value of -45 becomes 0.5 (halfway through first interval)
+        values_transformed = np.zeros_like(values)
+        
+        # Vectorized interpolation to 'Level Space'
+        # This gives equal visual weight to every interval regardless of numeric size
+        values_transformed = np.interp(values, levels, np.arange(n_levels))
+        
+        # Plot the TRANSFORMED data (0 to n_levels-1)
+        # We use standard Gouraud shading on this transformed data
+        tpc = ax.tripcolor(triang, values_transformed, cmap=cmap, 
+                           vmin=0, vmax=n_levels-1,
+                           shading="gouraud", alpha=alpha, zorder=10)
+        
+        # Return the levels as 'norm' so the colorbar knows what to do
+        return tpc, levels
+    # if levels is not None:
+    #     import matplotlib.colors as mcolors
+    #     norm = mcolors.BoundaryNorm(levels, cmap.N, extend='both')
+    #     tpc = ax.tripcolor(triang, values, cmap=cmap, norm=norm, shading='gouraud',
+    #                        alpha=alpha, zorder=10)
+    #     return tpc, norm
     values = np.clip(values, vmin, vmax)
     if vmin < 0 < vmax:
         norm = TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
@@ -242,15 +282,83 @@ def draw_tripcolor(ax, triang, values, vmin, vmax, cmap, alpha):
 
 def add_mesh_lines(ax, triang):
     print("Drawing mesh triangles...")
-    ax.triplot(triang, color="black", linewidth=0.12, alpha=0.75, zorder=11)
+    ax.triplot(triang, color="white", linewidth=0.2, alpha=1, zorder=11)
 
+def set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, alpha, tick_interval, levels=None, binned=False):
+    if isinstance(cmap, str):
+        cmap = plt.get_cmap(cmap)
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="2%", pad=0.05)
 
-def set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, alpha,
-                 tick_interval):
-    cax = make_axes_locatable(ax).append_axes("right", size="2%", pad=0.05)
-    cbar = make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha)
-    configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval)
+    # MODE A: Binned (Discrete Blocks)
+    # We create a fake "mappable" just for the legend so it looks like blocks
+    if levels is not None and binned:
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+        
+        # Create the discrete norm
+        cbar_norm = mcolors.BoundaryNorm(levels, cmap.N, extend='both')
+        
+        # Create a dummy object (not plotted)
+        mappable = cm.ScalarMappable(norm=cbar_norm, cmap=cmap)
+        mappable.set_array([]) 
+        
+        cbar = fig.colorbar(mappable, cax=cax, orientation='vertical', alpha=alpha, extend='both')
+        
+        # Force ticks to match the levels
+        cbar.set_ticks(levels)
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(smart_format))
 
+    # MODE B: Smooth (Gradient) - Default
+    # We use the actual plot object ('tpc') so the bar matches the figure exactly
+    else:
+        # Note: If using the "Piecewise Linear" draw_tripcolor, 'norm' here is actually the levels list
+        # We pass it through so configure_cbar_ticks can label it correctly
+        cbar = make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha)
+        configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval, levels)
+
+    if clabel:
+        cbar.set_label(clabel)
+# def set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, alpha,
+#                  tick_interval, levels=None):
+#     cax = make_axes_locatable(ax).append_axes("right", size="2%", pad=0.05)
+#     cbar = make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha)
+#     configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval, levels)
+# def set_colorbar(fig, ax, tpc, cmap, norm, vmin, vmax, clabel, alpha, tick_interval, levels=None):
+#     if isinstance(cmap, str):
+#         cmap = plt.get_cmap(cmap)
+#     divider = make_axes_locatable(ax)
+#     cax = divider.append_axes("right", size="2%", pad=0.05)
+
+#     # --- THE TRICK: Decouple Plot from Colorbar ---
+#     if levels is not None:
+#         import matplotlib.cm as cm
+#         import matplotlib.colors as mcolors
+        
+#         # 1. Create a Discrete Norm just for the Colorbar
+#         #    (This forces the bar to look like solid blocks)
+#         cbar_norm = mcolors.BoundaryNorm(levels, cmap.N, extend='both')
+        
+#         # 2. Create a "Dummy" Mappable
+#         #    (We don't plot this, we just use it to generate the bar)
+#         mappable = cm.ScalarMappable(norm=cbar_norm, cmap=cmap)
+#         mappable.set_array([]) # Fake data
+        
+#         # 3. Build the Colorbar using the Dummy
+#         cbar = fig.colorbar(mappable, cax=cax, orientation='vertical', alpha=alpha, extend='both')
+        
+#         # 4. Set ticks exactly at the level boundaries
+#         cbar.set_ticks(levels)
+#         cbar.ax.yaxis.set_major_formatter(FuncFormatter(smart_format))
+        
+#     else:
+#         # Standard behavior (Linked 1-to-1)
+#         cbar = make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha)
+#         configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval, levels)
+
+#     # Label the bar
+#     if clabel:
+#         cbar.set_label(clabel)
 
 def make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha):
     if alpha is not None and alpha < 1:
@@ -263,7 +371,17 @@ def make_colorbar(fig, cax, tpc, cmap, norm, vmin, vmax, clabel, alpha):
     return fig.colorbar(tpc, cax=cax, label=clabel, extend="both", aspect=40)
 
 
-def configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval):
+def configure_cbar_ticks(cbar, norm, vmin, vmax, tick_interval, levels=None):
+    if levels is not None and isinstance(levels, list):
+        # The data is plotted as 0, 1, 2, 3...
+        # So we put ticks exactly at those integers
+        n_levels = len(levels)
+        ticks_indices = np.arange(n_levels)
+        cbar.set_ticks(ticks_indices)
+        
+        # And we label them with the ORIGINAL level values
+        cbar.ax.set_yticklabels([smart_format(x, None) for x in levels])
+        return
     if norm is not None:
         n_total = 10
         n_side = (n_total - 1) // 2
@@ -530,7 +648,7 @@ def animate_adcirc_zeta(ncfile, variable='zeta',
     vals0 = var[idxs[0], :]
     vals0 = np.where(vals0 == -99999, np.nan, vals0) * multiplier
 
-    tpc = ax.tripcolor(triang, vals0, shading='flat', cmap=cmap, vmin=vmin, vmax=vmax)
+    tpc = ax.tripcolor(triang, vals0, shading='gouraud', cmap=cmap, vmin=vmin, vmax=vmax)
     if bounds:
         ax.set_xlim(bounds[0], bounds[2])
         ax.set_ylim(bounds[1], bounds[3])
@@ -640,9 +758,13 @@ if __name__ == "__main__":
     parser.add_argument("--show-state-boundaries", action="store_true", help="Show state boundaries on the plot")
     parser.add_argument("--tick-interval", type=float, help="Custom tick interval for colorbar (if not using vmin/vmax)")
     parser.add_argument("--transparency", type=float, default=1.0, help="Transparency level for the colormap (0.0 to 1.0)")
-
+    parser.add_argument("--no_colorbar", action="store_true", help="Disable colorbar")
+    parser.add_argument("--fontsize", type=int, default=14, help="Base font size for the plot")
+    parser.add_argument("--levels", nargs="+", type=float, help="List of specific color labels")
+    parser.add_argument('--binned-colorbar', action='store_true', help='Render the colorbar with normalized bins')
     
     args = parser.parse_args()
+    plt.rcParams.update({'font.size': args.fontsize})
     
     # Load config if provided, then let CLI override
     config = {}
@@ -679,17 +801,18 @@ if __name__ == "__main__":
             show_state_boundaries=config.get("show_state_boundaries", False),
             multiplier=config.get("multiplier", 1.0),
             draw_mesh=config.get("draw_mesh", False),
-            transparency=config.get("transparency", 1.0)
+            transparency=config.get("transparency", 1.0),
+            levels=config.get('levels', None)
         )
         raise SystemExit(0)
     
     
-        if args.config:
-            print(f"Loading configuration from {args.config}...")
-            with open(args.config, 'r') as f:
-                config = json.load(f)
-        else:
-            config = vars(args)
+    if args.config:
+        print(f"Loading configuration from {args.config}...")
+        with open(args.config, 'r') as f:
+            config = json.load(f)
+    else:
+        config = vars(args)
 
     print("Starting ADCIRC plotter...")
     input_file = args.input or config.get("input", "fort.14")
@@ -699,7 +822,7 @@ if __name__ == "__main__":
     else:
         nodes, elements, bathy = read14(input_file)
         # Only fort.14: always bathymetry
-        values = bathy
+        values = -1*bathy
 
     plot_adcirc_mesh(
         nodes, elements, values,
@@ -709,15 +832,18 @@ if __name__ == "__main__":
         vmin=config.get("vmin"),
         vmax=config.get("vmax"),
         output_file=(args.output if hasattr(args, 'output') and args.output else config.get("output")),
-        cmap=config.get("cmap", "RdYlBu_r"),
+        cmap=config.get("cmap", "RdYlBu"),
         shapefile_overlay=config.get("shapefile_overlay"),
         shapefile_overlay_label=config.get("shapefile_overlay_label"),
         clabel=config.get("clabel"),
         show_state_labels=config.get("show_state_labels", False),
         show_state_boundaries=config.get("show_state_boundaries", False),
         multiplier=config.get("multiplier", 1.0),
-        draw_mesh=config.get("draw_mesh", False),
+        draw_mesh=config.get("draw_mesh", True),
         tick_interval=config.get("tick_interval", None),  # New parameter for custom tick intervals,
-        transparency=config.get("transparency", 1.0)  # New parameter for transparency
+        transparency=config.get("transparency", 1.0),  # New parameter for transparency
+        no_colorbar=config.get('no_colorbar', False),
+        levels=config.get('levels', None),
+        binned_colorbar=args.binned_colorbar
     )
     print("Done.")
